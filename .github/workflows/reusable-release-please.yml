@@ -1,0 +1,61 @@
+name: Reusable — Release Please
+
+on:
+  workflow_call:
+    inputs:
+      release_type:
+        description: "release-please release type (python | node | go | simple)"
+        required: true
+        type: string
+      package_name:
+        description: "Package name (used in release notes)"
+        required: false
+        type: string
+        default: ""
+      changelog_types:
+        description: "JSON array of conventional commit types to include in changelog"
+        required: false
+        type: string
+        default: |
+          [
+            {"type":"feat","section":"Features"},
+            {"type":"fix","section":"Bug Fixes"},
+            {"type":"perf","section":"Performance"},
+            {"type":"revert","section":"Reverts"},
+            {"type":"docs","section":"Documentation","hidden":true},
+            {"type":"chore","section":"Miscellaneous","hidden":true}
+          ]
+    secrets:
+      RELEASE_TOKEN:
+        description: "GitHub token with write access (use PAT if cross-repo triggers needed)"
+        required: false
+    outputs:
+      release_created:
+        description: "True if a release was created"
+        value: ${{ jobs.release-please.outputs.release_created }}
+      tag_name:
+        description: "The release tag (e.g. v1.2.3)"
+        value: ${{ jobs.release-please.outputs.tag_name }}
+      version:
+        description: "The version number without v prefix (e.g. 1.2.3)"
+        value: ${{ jobs.release-please.outputs.version }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: ${{ inputs.release_type }}
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          changelog-types: ${{ inputs.changelog_types }}

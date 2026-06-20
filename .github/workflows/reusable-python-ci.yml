@@ -1,0 +1,89 @@
+name: Reusable — Python CI
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: "Python version"
+        required: false
+        type: string
+        default: "3.12"
+      requirements_file:
+        description: "Path to requirements file"
+        required: false
+        type: string
+        default: "requirements.txt"
+      app_directory:
+        description: "Directory containing application code (for ruff)"
+        required: false
+        type: string
+        default: "app"
+      test_directory:
+        description: "Directory containing tests"
+        required: false
+        type: string
+        default: "tests"
+      run_localstack:
+        description: "Whether to spin up LocalStack for integration tests"
+        required: false
+        type: boolean
+        default: false
+      localstack_services:
+        description: "Comma-separated LocalStack services to enable"
+        required: false
+        type: string
+        default: "dynamodb"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      localstack:
+        image: ${{ inputs.run_localstack && 'localstack/localstack:latest' || '' }}
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: ${{ inputs.localstack_services }}
+          AWS_DEFAULT_REGION: eu-west-1
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r ${{ inputs.requirements_file }}
+
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check ${{ inputs.app_directory }}
+
+      - name: Run tests
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: eu-west-1
+          AWS_ENDPOINT_URL: ${{ inputs.run_localstack && 'http://localhost:4566' || '' }}
+        run: |
+          pip install pytest pytest-cov
+          pytest ${{ inputs.test_directory }} -v --tb=short \
+            --cov=${{ inputs.app_directory }} \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml

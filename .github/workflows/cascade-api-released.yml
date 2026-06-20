@@ -1,0 +1,50 @@
+name: Cascade — api-released
+
+# Receives the api-released repository_dispatch from platform-control-plane
+# and fans it out to all downstream consumers.
+#
+# Consumers:
+#   platform-cli     → opens PR to update API version compatibility ref
+#   app-www          → triggers site rebuild to pick up any new docs/changelog
+#
+# To add a new consumer: add a dispatch step below.
+on:
+  repository_dispatch:
+    types: [api-released]
+
+jobs:
+  fan-out:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dispatch to platform-cli
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RELEASE_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'ittoolbelt-com',
+              repo: 'ittoolbelt-platform-cli',
+              event_type: 'api-released',
+              client_payload: {
+                version: '${{ github.event.client_payload.version }}',
+                release_url: '${{ github.event.client_payload.release_url }}'
+              }
+            });
+            console.log('Dispatched api-released to platform-cli');
+
+      - name: Dispatch to app-www
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RELEASE_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'ittoolbelt-com',
+              repo: 'ittoolbelt-app-www',
+              event_type: 'content-updated',
+              client_payload: {
+                source: 'api-released',
+                version: '${{ github.event.client_payload.version }}'
+              }
+            });
+            console.log('Dispatched content-updated to app-www');

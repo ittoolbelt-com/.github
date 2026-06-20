@@ -1,0 +1,68 @@
+name: Reusable — Terraform Apply
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: "Terraform working directory (e.g. environments/dev)"
+        required: true
+        type: string
+      state_key:
+        description: "S3 state key"
+        required: true
+        type: string
+      state_bucket:
+        description: "S3 bucket name for Terraform remote state"
+        required: true
+        type: string
+      environment:
+        description: "GitHub Environment name (dev | preprod | prod)"
+        required: true
+        type: string
+      aws_region:
+        description: "AWS region"
+        required: false
+        type: string
+        default: "eu-west-1"
+      extra_vars:
+        description: "Additional -var flags to pass to terraform apply (e.g. '-var foo=bar')"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Terraform Init
+        run: |
+          terraform -chdir=${{ inputs.working_directory }} init \
+            -backend-config="bucket=${{ inputs.state_bucket }}" \
+            -backend-config="key=${{ inputs.state_key }}" \
+            -backend-config="region=${{ inputs.aws_region }}"
+
+      - name: Terraform Apply
+        run: |
+          terraform -chdir=${{ inputs.working_directory }} apply \
+            -auto-approve \
+            -var-file=terraform.tfvars \
+            ${{ inputs.extra_vars }}

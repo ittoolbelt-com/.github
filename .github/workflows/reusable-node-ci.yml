@@ -1,0 +1,51 @@
+name: Reusable — Node CI
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node.js version"
+        required: false
+        type: string
+        default: "20"
+      working_directory:
+        description: "Directory to run install and tests from"
+        required: false
+        type: string
+        default: "."
+      test_script:
+        description: "npm script to run tests"
+        required: false
+        type: string
+        default: "test"
+      build_script:
+        description: "npm script to verify build (leave empty to skip)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run ${{ inputs.test_script }}
+
+      - name: Build check
+        if: inputs.build_script != ''
+        run: npm run ${{ inputs.build_script }}

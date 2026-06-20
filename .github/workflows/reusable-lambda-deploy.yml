@@ -1,0 +1,82 @@
+name: Reusable — Lambda Deploy (ECR image)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment name (dev | preprod | prod)"
+        required: true
+        type: string
+      ecr_repository_url:
+        description: "Full ECR repository URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com/org/repo)"
+        required: true
+        type: string
+      lambda_function_name:
+        description: "Lambda function name to update"
+        required: true
+        type: string
+      aws_region:
+        description: "AWS region"
+        required: false
+        type: string
+        default: "eu-west-1"
+      dockerfile:
+        description: "Path to Dockerfile"
+        required: false
+        type: string
+        default: "Dockerfile"
+    secrets:
+      AWS_REGISTRY_ROLE_ARN:
+        description: "IAM role ARN in the ECR registry account (for docker login)"
+        required: true
+      AWS_DEPLOY_ROLE_ARN:
+        description: "IAM role ARN in the platform account (for Lambda update)"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials (registry account)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_REGISTRY_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE="${{ inputs.ecr_repository_url }}:${{ github.sha }}"
+          docker build -f ${{ inputs.dockerfile }} -t "$IMAGE" .
+          docker push "$IMAGE"
+          docker tag "$IMAGE" "${{ inputs.ecr_repository_url }}:latest"
+          docker push "${{ inputs.ecr_repository_url }}:latest"
+
+      - name: Configure AWS credentials (platform account)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ inputs.lambda_function_name }} \
+            --image-uri "${{ inputs.ecr_repository_url }}:${{ github.sha }}" \
+            --region ${{ inputs.aws_region }}
+
+      - name: Wait for update to complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ inputs.lambda_function_name }} \
+            --region ${{ inputs.aws_region }}
